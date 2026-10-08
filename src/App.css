@@ -99,6 +99,22 @@ button {
 .profile-trigger:hover .user-info strong { color: #079fc3; }
 .profile-trigger:focus-visible { outline: 2px solid #08afd0; outline-offset: 5px; border-radius: 8px; }
 
+.theme-icon-toggle {
+  width: 38px;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #dce6ee;
+  border-radius: 50%;
+  background: transparent;
+  color: #52708c;
+  font-size: 16px;
+  transition: .2s ease;
+}
+.theme-icon-toggle:hover { background: #eef9fc; border-color: #b9eaf2; color: #079fc3; }
+.theme-icon-toggle:focus-visible { outline: 2px solid #08afd0; outline-offset: 3px; }
+
 .notification-icon {
   width: 34px;
   height: 42px;
@@ -109,6 +125,15 @@ button {
   color: #7b8da0;
   font-size: 18px;
 }
+
+.notification-button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.notification-button:hover { color: #08afd0; }
+.notification-button:focus-visible { outline: 2px solid #08afd0; outline-offset: 3px; border-radius: 8px; }
 
 .notification-icon span {
   position: absolute;
@@ -194,8 +219,8 @@ button {
 .sidebar {
   width: 84px;
   min-width: 84px;
-  background: #ffffff;
-  border-right: 1px solid #e3ebf2;
+  background: #292f36;
+  border-right: 1px solid #3b434c;
   padding: 22px 10px;
   position: relative;
   z-index: 100;
@@ -216,7 +241,7 @@ button {
   border: none;
   border-radius: 13px;
   background: transparent;
-  color: #71869a;
+  color: #c2d2e0;
   position: relative;
   z-index: 101;
   pointer-events: auto;
@@ -229,13 +254,13 @@ button {
 }
 
 .sidebar-btn:hover {
-  background: #eef9fc;
-  color: #079fc3;
+  background: #3b434c;
+  color: #ffffff;
 }
 
 .sidebar-btn.active {
-  background: #e7f8fc;
-  color: #079fc3;
+  background: #08afd0;
+  color: #ffffff;
 }
 
 .sidebar-icon {
@@ -329,6 +354,22 @@ button {
 .live-status i {
   font-size: 8px;
 }
+
+.dashboard-hero-actions { display: flex; align-items: center; gap: 12px; }
+.theme-toggle {
+  min-height: 40px;
+  padding: 0 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #dce6ee;
+  border-radius: 11px;
+  background: #fff;
+  color: #52708c;
+  font-size: 12px;
+  font-weight: 700;
+}
+.theme-toggle:hover { border-color: #08afd0; color: #079fc3; }
 
 /* =========================
    DASHBOARD CARDS
@@ -799,6 +840,89 @@ button {
   color: #163b61;
 }
 
+.theme-dark { background: #101a24; color: #d7e2ec; }
+.theme-dark .top-navbar,
+.theme-dark .sidebar,
+.theme-dark .custom-card,
+.theme-dark .stat-card,
+.theme-dark .vehicle-item,
+.theme-dark .vehicle-modal,
+.theme-dark .theme-toggle { background: #192633; border-color: #2b3b4a; }
+.theme-dark .top-navbar,
+.theme-dark .sidebar { border-color: #2b3b4a; }
+.theme-dark .brand-name,
+.theme-dark .welcome-section h1,
+.theme-dark .page-heading h1,
+.theme-dark .user-info strong,
+.theme-dark .profile-summary h2,
+.theme-dark .modal-heading h2,
+.theme-dark .card-header h2,
+.theme-dark .custom-card h3,
+.theme-dark .stat-number,
+.theme-dark .vehicle-item-details strong { color: #e4edf5; }
+.theme-dark .brand-subtitle,
+.theme-dark .welcome-section p,
+.theme-dark .page-heading p,
+.theme-dark .user-info small,
+.theme-dark .vehicle-item-info p,
+.theme-dark .vehicle-item-info span,
+.theme-dark .vehicle-item-details small,
+.theme-dark .card-header p,
+.theme-dark .forecast-text,
+.theme-dark .modal-heading p { color: #9aabba; }
+.theme-dark .content { background: #101a24; }
+.theme-dark .sidebar-btn { color: #a3b3c2; }
+.theme-dark .sidebar-btn:hover,
+.theme-dark .sidebar-btn.active { background: #203c4c; color: #55cde0; }
+.theme-dark .sidebar { background: #292f36; border-color: #3b434c; }
+.theme-dark .sidebar-btn { color: #c2d2e0; }
+.theme-dark .sidebar-btn:hover { background: #3b434c; color: #fff; }
+.theme-dark .sidebar-btn.active { background: #08afd0; color: #fff; }
+.theme-dark .logout-btn,
+.theme-dark .profile-form input,
+.theme-dark .vehicle-modal input,
+.theme-dark .vehicle-modal select,
+.theme-dark .vehicle-modal textarea { background: #14212c; border-color: #354858; color: #e0eaf2; }
+.theme-dark .vehicle-item-icon { background: #203c4c; color: #55cde0; }
+.theme-dark .empty-icon { background: #203542; color: #55cde0; }
+.theme-dark .profile-summary { border-color: #2b3b4a; }
+.theme-dark .theme-toggle,
+.theme-dark .theme-icon-toggle { color: #d7e2ec; border-color: #354858; }
+.theme-dark .theme-icon-toggle:hover { background: #203c4c; color: #55cde0; }
+.theme-dark .modal-backdrop { background: rgba(2, 8, 14, .72); }
+
+/* Keep the top hero bar paired with the dark blue sidebar in either theme. */
+.top-navbar,
+.theme-dark .top-navbar {
+  background: #0b3158;
+  border-color: #173f65;
+}
+.top-navbar .brand-name,
+.theme-dark .top-navbar .brand-name { color: #ffffff; }
+.top-navbar .brand-subtitle,
+.theme-dark .top-navbar .brand-subtitle,
+.top-navbar .user-info small,
+.theme-dark .top-navbar .user-info small { color: #b5c9dc; }
+.top-navbar .user-info strong,
+.theme-dark .top-navbar .user-info strong { color: #ffffff; }
+.top-navbar .notification-icon,
+.theme-dark .top-navbar .notification-icon { color: #d1dfec; }
+.top-navbar .notification-button:hover,
+.theme-dark .top-navbar .notification-button:hover { color: #7ce3f0; }
+.top-navbar .theme-icon-toggle,
+.theme-dark .top-navbar .theme-icon-toggle { border-color: #416181; color: #e4edf5; }
+.top-navbar .theme-icon-toggle:hover,
+.theme-dark .top-navbar .theme-icon-toggle:hover { background: #16446d; border-color: #5b83a7; color: #ffffff; }
+.top-navbar .logout-btn,
+.theme-dark .top-navbar .logout-btn { background: transparent; border-color: #416181; color: #e4edf5; }
+.top-navbar .logout-btn:hover,
+.theme-dark .top-navbar .logout-btn:hover { background: #16446d; border-color: #5b83a7; color: #ffffff; }
+
+@media (max-width: 650px) {
+  .dashboard-hero-actions { flex-wrap: wrap; justify-content: flex-start; }
+  .theme-toggle { min-height: 38px; }
+}
+
 .profile-card { max-width: 680px; }
 .profile-summary { display: flex; align-items: center; gap: 16px; padding-bottom: 22px; margin-bottom: 22px; border-bottom: 1px solid #edf1f4; }
 .profile-avatar { width: 62px; height: 62px; flex: 0 0 62px; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: #dff5fb; color: #049fc2; font-size: 19px; font-weight: 800; }
@@ -948,7 +1072,7 @@ button {
   .sidebar-label {
     display: block;
     padding: 0 12px 13px;
-    color: #a0adba;
+    color: #9fb4c8;
     font-size: 10px;
     font-weight: 800;
     letter-spacing: 0.8px;

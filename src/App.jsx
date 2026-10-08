@@ -13,6 +13,15 @@ function App() {
   });
 
   const [page, setPage] = useState("dashboard");
+  const [darkMode, setDarkMode] = useState(() => localStorage.getItem("vehicareTheme") === "dark");
+
+  function toggleTheme() {
+    setDarkMode((current) => {
+      const next = !current;
+      localStorage.setItem("vehicareTheme", next ? "dark" : "light");
+      return next;
+    });
+  }
 
   const [vehicles, setVehicles] = useState([]);
   const [loadingVehicles, setLoadingVehicles] = useState(false);
@@ -154,7 +163,7 @@ function App() {
   // =========================
 
   return (
-    <div className="app">
+    <div className={`app${darkMode ? " theme-dark" : ""}`}>
 
       {/* TOP NAVBAR */}
 
@@ -181,10 +190,26 @@ function App() {
 
         <div className="user-section">
 
-          <div className="notification-icon">
+          <button
+            type="button"
+            className="theme-icon-toggle"
+            onClick={toggleTheme}
+            aria-label={`Switch to ${darkMode ? "light" : "dark"} mode`}
+            title={`Switch to ${darkMode ? "light" : "dark"} mode`}
+          >
+            <i className={`bi ${darkMode ? "bi-sun-fill" : "bi-moon-stars-fill"}`}></i>
+          </button>
+
+          <button
+            type="button"
+            className="notification-icon notification-button"
+            onClick={() => setPage("notifications")}
+            aria-label={`Open notifications, ${notifications.filter((item) => Number(item.is_read) !== 1).length} unread`}
+            title="Open notifications"
+          >
             <i className="bi bi-bell-fill"></i>
             <span>{notifications.filter((item) => Number(item.is_read) !== 1).length}</span>
-          </div>
+          </button>
 
 
           <button
@@ -949,12 +974,11 @@ function Dashboard({
         </div>
 
 
-        <div className="live-status">
-
-          <i className="bi bi-circle-fill"></i>
-
-          Live Status
-
+        <div className="dashboard-hero-actions">
+          <div className="live-status">
+            <i className="bi bi-circle-fill"></i>
+            Live Status
+          </div>
         </div>
 
       </div>
