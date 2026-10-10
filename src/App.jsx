@@ -1,20 +1,49 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import "./App.css";
-
+import { supabase } from "./lib/supabaseClient";
 function App() {
-  const [user, setUser] = useState(() => {
-    try {
-      const savedUser = localStorage.getItem("vehicareUser");
-      return savedUser ? JSON.parse(savedUser) : null;
-    } catch {
-      localStorage.removeItem("vehicareUser");
-      return null;
+  const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const activeUser = useRef(null);
+  useEffect(() => {
+    let mounted = true;
+    let receivedEvent = false;
+    function applySession(session) {
+      if (!mounted) return;
+      const authUser = session?.user;
+      const next = authUser ? {
+        id: authUser.id,
+        name: authUser.user_metadata?.name || "Vehicle Owner",
+        email: authUser.email || "",
+      } : null;
+      if (activeUser.current !== next?.id) {
+        setVehicles([]); setMaintenanceRecords([]);
+        setScheduleRecords([]); setNotifications([]);
+        setPage("dashboard"); setLoadError("");
+      }
+      activeUser.current = next?.id || null;
+      setUser(next);
+      setAuthLoading(false);
     }
-  });
-
+    localStorage.removeItem("vehicareUser");
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      receivedEvent = true;
+      applySession(session);
+    });
+    supabase.auth.getSession().then(({ data, error }) => {
+      if (!mounted || receivedEvent) return;
+      if (error) setLoadError(error.message);
+      applySession(data?.session);
+    }).catch(error => {
+      if (mounted && !receivedEvent) {
+        setLoadError(error.message); setAuthLoading(false);
+      }
+    });
+    return () => { mounted = false; activeUser.current = null; subscription.unsubscribe(); };
+  }, []);
   const [page, setPage] = useState("dashboard");
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem("vehicareTheme") === "dark");
-
   function toggleTheme() {
     setDarkMode((current) => {
       const next = !current;
@@ -22,7 +51,6 @@ function App() {
       return next;
     });
   }
-
   const [vehicles, setVehicles] = useState([]);
   const [loadingVehicles, setLoadingVehicles] = useState(false);
   const [maintenanceRecords, setMaintenanceRecords] = useState([]);
@@ -31,165 +59,81 @@ function App() {
   const [loadingSchedules, setLoadingSchedules] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [loadingNotifications, setLoadingNotifications] = useState(false);
-
   const maintenance = maintenanceRecords.length;
   const schedules = scheduleRecords.length;
-  const expenses = 0;
-
+  const expenses = maintenanceRecords.reduce((total, record) => total + Number(record.cost || 0), 0);
   // =========================
   // GET USER VEHICLES
   // =========================
-
   useEffect(() => {
     if (!user) {
       setVehicles([]);
       return;
     }
-
     fetchVehicles(user.id);
     fetchMaintenance(user.id);
     fetchSchedules(user.id);
     fetchNotifications(user.id);
   }, [user]);
-
-  async function fetchNotifications(userId) {
-    setLoadingNotifications(true);
+  async function loadRows(userId, query, setter, setLoading, mapRow = row => row) {
+    setLoading(true);
     try {
-      const response = await fetch(
-        `http://localhost/vehicare-api/api.php?action=get_notifications&user_id=${userId}`
-      );
-      const data = await response.json();
-      setNotifications(data.success && Array.isArray(data.notifications) ? data.notifications : []);
+      const { data, error } = await query;
+      if (error) throw error;
+      if (activeUser.current === userId) setter((data || []).map(mapRow));
     } catch (error) {
-      console.error("Error fetching notifications:", error);
-      setNotifications([]);
+      if (activeUser.current === userId) setLoadError(error.message);
     } finally {
-      setLoadingNotifications(false);
+      if (activeUser.current === userId) setLoading(false);
     }
   }
-
-  async function fetchSchedules(userId) {
-    setLoadingSchedules(true);
-    try {
-      const response = await fetch(
-        `http://localhost/vehicare-api/api.php?action=get_schedules&user_id=${userId}`
-      );
-      const data = await response.json();
-      setScheduleRecords(data.success && Array.isArray(data.schedules) ? data.schedules : []);
-    } catch (error) {
-      console.error("Error fetching schedules:", error);
-      setScheduleRecords([]);
-    } finally {
-      setLoadingSchedules(false);
-    }
+  const withVehicle = row => ({ ...row, ...row.vehicle });
+  function fetchVehicles(userId) {
+    return loadRows(userId, supabase.from("vehicles").select("*").eq("user_id", userId).order("created_at", { ascending: false }), setVehicles, setLoadingVehicles);
   }
-
-  async function fetchMaintenance(userId) {
-    setLoadingMaintenance(true);
-    try {
-      const response = await fetch(
-        `http://localhost/vehicare-api/api.php?action=get_maintenance&user_id=${userId}`
-      );
-      const data = await response.json();
-      setMaintenanceRecords(data.success && Array.isArray(data.maintenance) ? data.maintenance : []);
-    } catch (error) {
-      console.error("Error fetching maintenance:", error);
-      setMaintenanceRecords([]);
-    } finally {
-      setLoadingMaintenance(false);
-    }
+  function fetchMaintenance(userId) {
+    return loadRows(userId, supabase.from("maintenance_records").select("*, vehicle:vehicles!inner(vehicle_name, brand, model, user_id)").eq("vehicle.user_id", userId).order("service_date", { ascending: false }), setMaintenanceRecords, setLoadingMaintenance, row => ({ ...withVehicle(row), notes: row.description }));
   }
-
-  async function fetchVehicles(userId) {
-    setLoadingVehicles(true);
-
-    try {
-      const response = await fetch(
-        `http://localhost/vehicare-api/api.php?action=get_vehicles&user_id=${userId}`
-      );
-
-      const data = await response.json();
-
-      if (data.success) {
-        setVehicles(data.vehicles);
-      } else {
-        setVehicles([]);
-      }
-    } catch (error) {
-      console.error("Error fetching vehicles:", error);
-      setVehicles([]);
-    } finally {
-      setLoadingVehicles(false);
-    }
+  function fetchSchedules(userId) {
+    return loadRows(userId, supabase.from("maintenance_schedules").select("*, vehicle:vehicles!inner(vehicle_name, brand, model, user_id)").eq("vehicle.user_id", userId).order("scheduled_date"), setScheduleRecords, setLoadingSchedules, row => ({ ...withVehicle(row), service_type: row.maintenance_type, due_date: row.scheduled_date, due_mileage: row.scheduled_mileage }));
   }
-
+  function fetchNotifications(userId) {
+    return loadRows(userId, supabase.from("notifications").select("*, vehicle:vehicles!inner(vehicle_name, brand, model, user_id)").eq("user_id", userId).order("created_at", { ascending: false }), setNotifications, setLoadingNotifications, withVehicle);
+  }
   const vehicleCount = vehicles.length;
-
   // =========================
   // LOGIN
   // =========================
-
-  function handleLogin(loginUser) {
-    localStorage.setItem(
-      "vehicareUser",
-      JSON.stringify(loginUser)
-    );
-
-    setUser(loginUser);
-    setPage("dashboard");
+  async function handleLogout() {
+    const { error } = await supabase.auth.signOut();
+    if (error) alert(error.message);
   }
-
-  // =========================
-  // LOGOUT
-  // =========================
-
-  function handleLogout() {
-    localStorage.removeItem("vehicareUser");
-    setUser(null);
-    setVehicles([]);
-    setPage("dashboard");
-  }
-
   // =========================
   // AUTH PAGE
   // =========================
-
-  if (!user) {
-    return <Auth onLogin={handleLogin} />;
-  }
-
+  if (authLoading) return <div className="login-page"><p>Loading your account...</p></div>;
+  if (!user) return <Auth initialError={loadError} />;
   // =========================
   // MAIN APP
   // =========================
-
   return (
     <div className={`app${darkMode ? " theme-dark" : ""}`}>
-
       {/* TOP NAVBAR */}
-
       <header className="top-navbar">
-
         <div className="brand">
-
           <div className="brand-icon">
             <i className="bi bi-car-front-fill"></i>
           </div>
-
           <div>
             <div className="brand-name">
               Vehicare
             </div>
-
             <div className="brand-subtitle">
               Vehicle Maintenance Management
             </div>
           </div>
-
         </div>
-
-
         <div className="user-section">
-
           <button
             type="button"
             className="theme-icon-toggle"
@@ -199,7 +143,6 @@ function App() {
           >
             <i className={`bi ${darkMode ? "bi-sun-fill" : "bi-moon-stars-fill"}`}></i>
           </button>
-
           <button
             type="button"
             className="notification-icon notification-button"
@@ -210,8 +153,6 @@ function App() {
             <i className="bi bi-bell-fill"></i>
             <span>{notifications.filter((item) => Number(item.is_read) !== 1).length}</span>
           </button>
-
-
           <button
             type="button"
             className="profile-trigger"
@@ -224,8 +165,6 @@ function App() {
               <small>Vehicle Owner</small>
             </span>
           </button>
-
-
           <button
             type="button"
             className="logout-btn"
@@ -234,25 +173,15 @@ function App() {
             <i className="bi bi-box-arrow-right"></i>
             Logout
           </button>
-
         </div>
-
       </header>
-
-
       {/* MAIN LAYOUT */}
-
       <div className="main-layout">
-
         {/* SIDEBAR */}
-
         <aside className="sidebar">
-
           <div className="sidebar-label">
             MAIN MENU
           </div>
-
-
           {[
             {
               id: "dashboard",
@@ -285,7 +214,6 @@ function App() {
               label: "Profile",
             },
           ].map((item) => (
-
             <button
               type="button"
               key={item.id}
@@ -294,58 +222,41 @@ function App() {
               }`}
               onClick={() => setPage(item.id)}
             >
-
               <span className="sidebar-icon">
                 <i className={item.icon}></i>
               </span>
-
               <span className="sidebar-text">
                 {item.label}
               </span>
-
               {item.id === "notifications" && (
                 <span className="menu-badge">
-                  0
+                  {notifications.filter(item => !item.is_read).length}
                 </span>
               )}
-
             </button>
-
           ))}
-
-
           <div className="sidebar-bottom">
-
             <div className="help-box">
-
               <div className="help-icon">
                 <i className="bi bi-car-front-fill"></i>
               </div>
-
               <strong>
                 Vehicare System v1.0
               </strong>
-
               <p>
                 Preventive maintenance management
                 for your vehicles.
               </p>
-
             </div>
-
           </div>
-
         </aside>
-
-
         {/* CONTENT */}
-
         <main className="content">
-
+          {loadError && <p className="form-error" role="alert">{loadError} <button type="button" onClick={() => setLoadError("")}>Dismiss</button></p>}
           {/* DASHBOARD */}
-
           {page === "dashboard" && (
             <Dashboard
+              records={maintenanceRecords}
               vehicles={vehicleCount}
               maintenance={maintenance}
               schedules={schedules}
@@ -354,36 +265,20 @@ function App() {
               loadingVehicles={loadingVehicles}
             />
           )}
-
-
           {/* VEHICLES */}
-
           {page === "vehicles" && (
             <VehiclesPage
               vehicles={vehicles}
               loadingVehicles={loadingVehicles}
               onRefresh={() => fetchVehicles(user.id)}
               onAddVehicle={async (vehicle) => {
-                const response = await fetch(
-                  "http://localhost/vehicare-api/api.php?action=add_vehicle",
-                  {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ ...vehicle, user_id: user.id }),
-                  }
-                );
-                const data = await response.json();
-                if (!response.ok || !data.success) {
-                  throw new Error(data.message || "Could not add vehicle.");
-                }
+                const { error } = await supabase.from("vehicles").insert({ ...vehicle, user_id: user.id });
+                if (error) throw error;
                 await fetchVehicles(user.id);
               }}
             />
           )}
-
-
           {/* MAINTENANCE */}
-
           {page === "maintenance" && (
             <MaintenancePage
               vehicles={vehicles}
@@ -391,26 +286,14 @@ function App() {
               loading={loadingMaintenance}
               onRefresh={() => fetchMaintenance(user.id)}
               onAddMaintenance={async (record) => {
-                const response = await fetch(
-                  "http://localhost/vehicare-api/api.php?action=add_maintenance",
-                  {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ ...record, user_id: user.id }),
-                  }
-                );
-                const data = await response.json();
-                if (!response.ok || !data.success) {
-                  throw new Error(data.message || "Could not save maintenance record.");
-                }
+                const { notes, ...fields } = record;
+                const { error } = await supabase.from("maintenance_records").insert({ ...fields, description: notes || null });
+                if (error) throw error;
                 await fetchMaintenance(user.id);
               }}
             />
           )}
-
-
           {/* SCHEDULES */}
-
           {page === "schedules" && (
             <SchedulesPage
               vehicles={vehicles}
@@ -418,26 +301,19 @@ function App() {
               loading={loadingSchedules}
               onRefresh={() => fetchSchedules(user.id)}
               onAddSchedule={async (schedule) => {
-                const response = await fetch(
-                  "http://localhost/vehicare-api/api.php?action=add_schedule",
-                  {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ ...schedule, user_id: user.id }),
-                  }
-                );
-                const data = await response.json();
-                if (!response.ok || !data.success) {
-                  throw new Error(data.message || "Could not save schedule.");
-                }
+                const { error } = await supabase.from("maintenance_schedules").insert({
+                  vehicle_id: schedule.vehicle_id,
+                  maintenance_type: schedule.service_type,
+                  scheduled_date: schedule.due_date,
+                  scheduled_mileage: schedule.due_mileage,
+                  notes: schedule.notes || null,
+                });
+                if (error) throw error;
                 await fetchSchedules(user.id);
               }}
             />
           )}
-
-
           {/* NOTIFICATIONS */}
-
           {page === "notifications" && (
             <NotificationsPage
               vehicles={vehicles}
@@ -445,235 +321,108 @@ function App() {
               loading={loadingNotifications}
               onRefresh={() => fetchNotifications(user.id)}
               onAddNotification={async (notification) => {
-                const response = await fetch(
-                  "http://localhost/vehicare-api/api.php?action=add_notification",
-                  {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ ...notification, user_id: user.id }),
-                  }
-                );
-                const data = await response.json();
-                if (!response.ok || !data.success) {
-                  throw new Error(data.message || "Could not save notification.");
-                }
+                const { error } = await supabase.from("notifications").insert({
+                  vehicle_id: notification.vehicle_id,
+                  user_id: user.id,
+                  title: notification.title,
+                  message: notification.message || "",
+                  notification_type: "Reminder",
+                  remind_at: new Date(notification.remind_at).toISOString(),
+                });
+                if (error) throw error;
                 await fetchNotifications(user.id);
               }}
             />
           )}
-
           {page === "profile" && (
             <ProfilePage
               user={user}
               onSave={async (profile) => {
-                const response = await fetch(
-                  "http://localhost/vehicare-api/api.php?action=update_profile",
-                  {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ ...profile, user_id: user.id }),
-                  }
-                );
-                const data = await response.json();
-                if (!response.ok || !data.success) {
-                  throw new Error(data.message || "Could not update profile.");
-                }
-                const updatedUser = data.user || { ...user, ...profile };
-                localStorage.setItem("vehicareUser", JSON.stringify(updatedUser));
-                setUser(updatedUser);
+                const emailChanged = profile.email.trim() !== user.email;
+                const changes = { data: { name: profile.name.trim() } };
+                if (emailChanged) changes.email = profile.email.trim();
+                const { error } = await supabase.auth.updateUser(changes);
+                if (error) throw error;
+                return emailChanged
+                  ? "Name saved. Check your current and new email inboxes to confirm the email change."
+                  : "Profile updated successfully.";
               }}
             />
           )}
-
         </main>
-
       </div>
-
     </div>
   );
 }
-
-
 /* =================================
    LOGIN + REGISTER
 ================================= */
-
-function Auth({ onLogin }) {
-
+function Auth({ initialError }) {
+  const [busy, setBusy] = useState(false);
+  const [authMessage, setAuthMessage] = useState(initialError || "");
   const [mode, setMode] = useState("login");
-
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-
-
   // =========================
   // LOGIN
   // =========================
-
   async function handleLoginSubmit(event) {
-
     event.preventDefault();
-
+    if (busy) return;
+    setBusy(true); setAuthMessage("");
     try {
-
-      const response = await fetch(
-        "http://localhost/vehicare-api/api.php?action=login",
-        {
-          method: "POST",
-
-          headers: {
-            "Content-Type": "application/json",
-          },
-
-          body: JSON.stringify({
-            email: email,
-            password: password,
-          }),
-        }
-      );
-
-
-      const data = await response.json();
-
-
-      if (!data.success) {
-        alert(data.message);
-        return;
-      }
-
-
-      onLogin(data.user);
-
-    } catch (error) {
-
-      console.error(error);
-
-      alert(
-        "Cannot connect to the server. Make sure XAMPP Apache and MySQL are running."
-      );
-
-    }
-
+      const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+      if (error) throw error;
+    } catch (error) { setAuthMessage(error.message); }
+    finally { setBusy(false); }
   }
-
-
-  // =========================
-  // REGISTER
-  // =========================
-
   async function handleRegisterSubmit(event) {
-
     event.preventDefault();
-
-
-    if (password !== confirmPassword) {
-
-      alert("Passwords do not match.");
-      return;
-
-    }
-
-
-    if (password.length < 6) {
-
-      alert("Password must be at least 6 characters.");
-      return;
-
-    }
-
-
+    if (busy) return;
+    if (password !== confirmPassword) { setAuthMessage("Passwords do not match."); return; }
+    if (password.length < 6) { setAuthMessage("Password must be at least 6 characters."); return; }
+    if (!name.trim()) { setAuthMessage("Enter your full name."); return; }
+    setBusy(true); setAuthMessage("");
     try {
-
-      const response = await fetch(
-        "http://localhost/vehicare-api/api.php?action=register",
-        {
-          method: "POST",
-
-          headers: {
-            "Content-Type": "application/json",
-          },
-
-          body: JSON.stringify({
-            name: name,
-            email: email,
-            password: password,
-          }),
-        }
-      );
-
-
-      const data = await response.json();
-
-
-      if (!data.success) {
-
-        alert(data.message);
-        return;
-
+      const { data, error } = await supabase.auth.signUp({
+        email: email.trim(), password,
+        options: { data: { name: name.trim() } },
+      });
+      if (error) throw error;
+      if (!data.session) {
+        setAuthMessage("Check your email for a confirmation link, then return here to log in. If you already have an account, try logging in.");
+        setMode("login"); setPassword(""); setConfirmPassword("");
       }
-
-
-      alert("Account created successfully!");
-
-
-      onLogin(data.user);
-
-    } catch (error) {
-
-      console.error(error);
-
-      alert(
-        "Cannot connect to the server. Make sure XAMPP Apache and MySQL are running."
-      );
-
-    }
-
+    } catch (error) { setAuthMessage(error.message); }
+    finally { setBusy(false); }
   }
-
-
   // =========================
   // REGISTER PAGE
   // =========================
-
   if (mode === "register") {
-
     return (
-
       <div className="login-page">
-
         <div className="login-card">
-
           <div className="login-logo">
             <i className="bi bi-car-front-fill"></i>
           </div>
-
-
           <h1>
             Vehicare
           </h1>
-
-
           <p className="login-subtitle">
             Create your Vehicle Owner Account
           </p>
-
-
+          {authMessage && <p role="status">{authMessage}</p>}
           <form onSubmit={handleRegisterSubmit}>
-
             {/* NAME */}
-
             <div className="login-field">
-
               <label>
                 Full Name
               </label>
-
               <div className="login-input-wrapper">
-
                 <i className="bi bi-person"></i>
-
                 <input
                   type="text"
                   placeholder="Enter your full name"
@@ -683,24 +432,15 @@ function Auth({ onLogin }) {
                   }
                   required
                 />
-
               </div>
-
             </div>
-
-
             {/* EMAIL */}
-
             <div className="login-field">
-
               <label>
                 Email Address
               </label>
-
               <div className="login-input-wrapper">
-
                 <i className="bi bi-envelope"></i>
-
                 <input
                   type="email"
                   placeholder="Enter your email"
@@ -710,24 +450,15 @@ function Auth({ onLogin }) {
                   }
                   required
                 />
-
               </div>
-
             </div>
-
-
             {/* PASSWORD */}
-
             <div className="login-field">
-
               <label>
                 Password
               </label>
-
               <div className="login-input-wrapper">
-
                 <i className="bi bi-lock"></i>
-
                 <input
                   type="password"
                   placeholder="Create a password"
@@ -737,24 +468,15 @@ function Auth({ onLogin }) {
                   }
                   required
                 />
-
               </div>
-
             </div>
-
-
             {/* CONFIRM PASSWORD */}
-
             <div className="login-field">
-
               <label>
                 Confirm Password
               </label>
-
               <div className="login-input-wrapper">
-
                 <i className="bi bi-lock-fill"></i>
-
                 <input
                   type="password"
                   placeholder="Confirm your password"
@@ -764,96 +486,58 @@ function Auth({ onLogin }) {
                   }
                   required
                 />
-
               </div>
-
             </div>
-
-
             <button
               type="submit"
               className="login-btn"
+              disabled={busy}
             >
-
               <i className="bi bi-person-plus-fill"></i>
-
               Create Account
-
             </button>
-
           </form>
-
-
           <div className="auth-switch">
-
             Already have an account?
-
             <button
               type="button"
               onClick={() => setMode("login")}
             >
               Login
             </button>
-
           </div>
-
-
           <div className="login-footer">
-
             <i className="bi bi-shield-check"></i>
-
             Secure Vehicle Maintenance Management
-
           </div>
-
         </div>
-
       </div>
-
     );
-
   }
-
-
   // =========================
   // LOGIN PAGE
   // =========================
-
   return (
-
     <div className="login-page">
-
       <div className="login-card">
-
         <div className="login-logo">
           <i className="bi bi-car-front-fill"></i>
         </div>
-
-
         <h1>
           Vehicare
         </h1>
-
-
         <p className="login-subtitle">
           Vehicle Maintenance Management System
         </p>
-
-
+        {authMessage && <p role="status">{authMessage}</p>}
         <form onSubmit={handleLoginSubmit}>
-
           {/* EMAIL */}
-
           <div className="login-field">
-
             <label>
               Email Address
             </label>
-
             <div className="login-input-wrapper">
-
               <i className="bi bi-envelope"></i>
-
               <input
                 type="email"
                 placeholder="Enter your email"
@@ -863,24 +547,15 @@ function Auth({ onLogin }) {
                 }
                 required
               />
-
             </div>
-
           </div>
-
-
           {/* PASSWORD */}
-
           <div className="login-field">
-
             <label>
               Password
             </label>
-
             <div className="login-input-wrapper">
-
               <i className="bi bi-lock"></i>
-
               <input
                 type="password"
                 placeholder="Enter your password"
@@ -890,61 +565,39 @@ function Auth({ onLogin }) {
                 }
                 required
               />
-
             </div>
-
           </div>
-
-
           <button
             type="submit"
             className="login-btn"
+              disabled={busy}
           >
-
             <i className="bi bi-box-arrow-in-right"></i>
-
             Login
-
           </button>
-
         </form>
-
-
         <div className="auth-switch">
-
           Don't have an account?
-
           <button
             type="button"
             onClick={() => setMode("register")}
           >
             Register
           </button>
-
         </div>
-
-
         <div className="login-footer">
-
           <i className="bi bi-shield-check"></i>
-
           Secure Vehicle Maintenance Management
-
         </div>
-
       </div>
-
     </div>
-
   );
 }
-
-
 /* =================================
    DASHBOARD
 ================================= */
-
 function Dashboard({
+  records,
   vehicles,
   maintenance,
   schedules,
@@ -952,293 +605,179 @@ function Dashboard({
   setPage,
   loadingVehicles,
 }) {
-
   return (
-
     <>
-
       {/* PAGE HEADER */}
-
       <div className="welcome-section">
-
         <div>
-
           <h1>
             Dashboard
           </h1>
-
           <p>
             Here's an overview of your vehicle maintenance.
           </p>
-
         </div>
-
-
         <div className="dashboard-hero-actions">
           <div className="live-status">
             <i className="bi bi-circle-fill"></i>
             Live Status
           </div>
         </div>
-
       </div>
-
-
       {/* STAT CARDS */}
-
       <div className="stats-grid">
-
         {/* VEHICLES */}
-
         <div className="stat-card blue">
-
           <div className="stat-label">
             Total Vehicles
           </div>
-
           <div className="stat-number">
-
             {loadingVehicles ? "..." : vehicles}
-
           </div>
-
           <div className="stat-icon">
             <i className="bi bi-car-front-fill"></i>
           </div>
-
           <div className="stat-description">
             Registered vehicles
           </div>
-
         </div>
-
-
         {/* MAINTENANCE */}
-
         <div className="stat-card green">
-
           <div className="stat-label">
             Maintenance Records
           </div>
-
           <div className="stat-number">
             {maintenance}
           </div>
-
           <div className="stat-icon">
             <i className="bi bi-file-earmark-text-fill"></i>
           </div>
-
           <div className="stat-description">
             Service history
           </div>
-
         </div>
-
-
         {/* SCHEDULES */}
-
         <div className="stat-card orange">
-
           <div className="stat-label">
             Schedules
           </div>
-
           <div className="stat-number">
             {schedules}
           </div>
-
           <div className="stat-icon">
             <i className="bi bi-calendar-check-fill"></i>
           </div>
-
           <div className="stat-description">
             Upcoming services
           </div>
-
         </div>
-
-
         {/* EXPENSES */}
-
         <div className="stat-card purple">
-
           <div className="stat-label">
             Total Expenses
           </div>
-
           <div className="stat-number">
             ₱{expenses.toFixed(2)}
           </div>
-
           <div className="stat-icon">
             <i className="bi bi-cash-stack"></i>
           </div>
-
           <div className="stat-description">
             Maintenance spending
           </div>
-
         </div>
-
       </div>
-
-
       {/* DASHBOARD LOWER CARDS */}
-
       <div className="dashboard-grid">
-
         {/* RECENT MAINTENANCE */}
-
         <div className="custom-card">
-
           <div className="card-header">
-
             <div>
-
               <h2>
                 Recent Maintenance
               </h2>
-
               <p>
                 Your latest vehicle service records
               </p>
-
             </div>
-
-
             <button
               type="button"
               className="text-btn"
               onClick={() => setPage("maintenance")}
             >
-
               View All
-
               <i className="bi bi-arrow-right"></i>
-
             </button>
-
           </div>
-
-
           <div className="empty-state">
-
             <div className="empty-icon">
               <i className="bi bi-tools"></i>
             </div>
-
             <h3>
-              No maintenance records yet
+              {maintenance ? `${maintenance} maintenance record(s) saved` : "No maintenance records yet"}
             </h3>
-
             <p>
-              Add your first maintenance record
-              to start tracking your vehicle.
+              {maintenance ? `Latest service: ${records[0]?.service_type || "View all records"}` : "Add your first maintenance record to start tracking your vehicle."}
             </p>
-
           </div>
-
         </div>
-
-
         {/* FORECAST */}
-
         <div className="custom-card forecast-card">
-
           <div className="forecast-icon">
             <i className="bi bi-stars"></i>
           </div>
-
-
           <div className="card-header">
-
             <div>
-
               <h2>
                 Maintenance Cost Forecast
               </h2>
-
               <p>
                 Based on your previous maintenance records.
               </p>
-
             </div>
-
           </div>
-
-
           <div className="stat-label">
             ESTIMATED NEXT COST
           </div>
-
-
           <div className="forecast-value">
             ₱0.00
           </div>
-
-
           <p className="forecast-text">
             Add more maintenance records to generate
             a more useful cost forecast.
           </p>
-
-
           <div className="forecast-bar">
-
             <div style={{ width: "15%" }}></div>
-
           </div>
-
         </div>
-
       </div>
-
-
       {/* READY CARD */}
-
       <div className="custom-card ready-card">
-
         <div className="empty-icon">
           <i className="bi bi-car-front-fill"></i>
         </div>
-
-
         <h2>
           Your Vehicare System is Ready
         </h2>
-
-
         <p>
           Select any menu item on the sidebar to manage
           your registered vehicles and maintenance records.
         </p>
-
-
         <button
           type="button"
           className="primary-btn"
           onClick={() => setPage("vehicles")}
         >
-
           <i className="bi bi-plus-lg"></i>
-
-          Add Your First Vehicle
-
+          {vehicles ? "Manage Vehicles" : "Add Your First Vehicle"}
         </button>
-
       </div>
-
     </>
-
   );
 }
-
-
 /* =================================
    VEHICLES PAGE
 ================================= */
-
 function VehiclesPage({
   vehicles,
   loadingVehicles,
@@ -1248,7 +787,6 @@ function VehiclesPage({
   const [showAddForm, setShowAddForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-
   async function handleAddVehicle(event) {
     event.preventDefault();
     setSaving(true);
@@ -1266,40 +804,26 @@ function VehiclesPage({
       setSaving(false);
     }
   }
-
   return (
-
     <>
-
       <div className="page-heading">
-
         <div>
-
           <h1>
             Vehicles
           </h1>
-
           <p>
             Manage your registered vehicles.
           </p>
-
         </div>
-
-
         <button
           type="button"
           className="primary-btn"
           onClick={() => { setError(""); setShowAddForm(true); }}
         >
-
           <i className="bi bi-plus-lg"></i>
-
           Add Vehicle
-
         </button>
-
       </div>
-
       {showAddForm && (
         <div className="modal-backdrop" onMouseDown={(event) => {
           if (event.target === event.currentTarget && !saving) setShowAddForm(false);
@@ -1330,143 +854,91 @@ function VehiclesPage({
           </section>
         </div>
       )}
-
-
       <div className="custom-card">
-
         {loadingVehicles ? (
-
           <div className="empty-state">
-
             <div className="empty-icon">
               <i className="bi bi-arrow-repeat"></i>
             </div>
-
             <h3>
               Loading vehicles...
             </h3>
-
             <p>
               Please wait while we load your vehicles.
             </p>
-
           </div>
-
         ) : vehicles.length === 0 ? (
-
           <div className="empty-state">
-
             <div className="empty-icon">
               <i className="bi bi-car-front-fill"></i>
             </div>
-
             <h3>
               No vehicles yet
             </h3>
-
             <p>
               You don't have any registered vehicles.
             </p>
-
             <button
               type="button"
               className="primary-btn"
               onClick={() => { setError(""); setShowAddForm(true); }}
             >
-
               <i className="bi bi-plus-lg"></i>
-
               Add Your First Vehicle
-
             </button>
-
           </div>
-
         ) : (
-
           <div className="vehicle-list">
-
             {vehicles.map((vehicle) => (
-
               <div
                 className="vehicle-item"
                 key={vehicle.id}
               >
-
                 <div className="vehicle-item-icon">
-
                   <i className="bi bi-car-front-fill"></i>
-
                 </div>
-
-
                 <div className="vehicle-item-info">
-
                   <h3>
                     {vehicle.vehicle_name}
                   </h3>
-
                   <p>
                     {vehicle.brand} {vehicle.model}
                   </p>
-
                   <span>
                     Plate Number: {vehicle.plate_number}
                   </span>
-
                 </div>
-
-
                 <div className="vehicle-item-details">
-
                   <strong>
                     {vehicle.year}
                   </strong>
-
                   <small>
                     {vehicle.current_mileage} km
                   </small>
-
                 </div>
-
               </div>
-
             ))}
-
-
             <button
               type="button"
               className="text-btn"
               onClick={onRefresh}
             >
-
               <i className="bi bi-arrow-clockwise"></i>
-
               Refresh Vehicles
-
             </button>
-
           </div>
-
         )}
-
       </div>
-
     </>
-
   );
 }
-
-
 /* =================================
    PLACEHOLDER PAGES
 ================================= */
-
 function MaintenancePage({ vehicles, records, loading, onRefresh, onAddMaintenance }) {
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-
   async function handleSubmit(event) {
     event.preventDefault();
     setSaving(true);
@@ -1485,7 +957,6 @@ function MaintenancePage({ vehicles, records, loading, onRefresh, onAddMaintenan
       setSaving(false);
     }
   }
-
   return (
     <>
       <div className="page-heading">
@@ -1540,12 +1011,10 @@ function MaintenancePage({ vehicles, records, loading, onRefresh, onAddMaintenan
     </>
   );
 }
-
 function SchedulesPage({ vehicles, schedules, loading, onRefresh, onAddSchedule }) {
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-
   async function handleSubmit(event) {
     event.preventDefault();
     setSaving(true);
@@ -1563,7 +1032,6 @@ function SchedulesPage({ vehicles, schedules, loading, onRefresh, onAddSchedule 
       setSaving(false);
     }
   }
-
   return (
     <>
       <div className="page-heading">
@@ -1617,12 +1085,10 @@ function SchedulesPage({ vehicles, schedules, loading, onRefresh, onAddSchedule 
     </>
   );
 }
-
 function ProfilePage({ user, onSave }) {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-
   async function handleSubmit(event) {
     event.preventDefault();
     setSaving(true);
@@ -1631,15 +1097,14 @@ function ProfilePage({ user, onSave }) {
     const form = new FormData(event.currentTarget);
     const profile = Object.fromEntries(form.entries());
     try {
-      await onSave(profile);
-      setMessage("Profile updated successfully.");
+      const result = await onSave(profile);
+      setMessage(result || "Profile updated successfully.");
     } catch (err) {
       setError(err.message || "Could not update profile.");
     } finally {
       setSaving(false);
     }
   }
-
   return (
     <>
       <div className="page-heading"><div><h1>Profile</h1><p>Manage your account details.</p></div></div>
@@ -1650,7 +1115,7 @@ function ProfilePage({ user, onSave }) {
         </div>
         <form className="profile-form" onSubmit={handleSubmit}>
           <label>Full name<input name="name" type="text" defaultValue={user.name || ""} required /></label>
-          <label>Email address<input name="email" type="email" defaultValue={user.email || ""} required /></label>
+          <label>Email address<input key={user.email} name="email" type="email" defaultValue={user.email || ""} required /></label>
           {error && <p className="form-error" role="alert">{error}</p>}
           {message && <p className="form-success" role="status">{message}</p>}
           <div className="modal-actions"><button type="submit" className="primary-btn" disabled={saving}>{saving ? "Saving..." : "Save Profile"}</button></div>
@@ -1659,12 +1124,10 @@ function ProfilePage({ user, onSave }) {
     </>
   );
 }
-
 function NotificationsPage({ vehicles, notifications, loading, onRefresh, onAddNotification }) {
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-
   async function handleSubmit(event) {
     event.preventDefault();
     setSaving(true);
@@ -1681,7 +1144,6 @@ function NotificationsPage({ vehicles, notifications, loading, onRefresh, onAddN
       setSaving(false);
     }
   }
-
   return (
     <>
       <div className="page-heading">
@@ -1733,105 +1195,62 @@ function NotificationsPage({ vehicles, notifications, loading, onRefresh, onAddN
     </>
   );
 }
-
 function PagePlaceholder({
   title,
   description,
   icon,
 }) {
-
   return (
-
     <>
-
       <div className="page-heading">
-
         <div>
-
           <h1>
             {title}
           </h1>
-
           <p>
             {description}
           </p>
-
         </div>
-
-
         <button
           type="button"
           className="primary-btn"
         >
-
           <i className="bi bi-plus-lg"></i>
-
           Add {title}
-
         </button>
-
       </div>
-
-
       <div className="custom-card">
-
         <div className="empty-state">
-
           <div className="empty-icon">
-
             <i className={icon}></i>
-
           </div>
-
-
           <h3>
             No {title.toLowerCase()} yet
           </h3>
-
-
           <p>
             Your {title.toLowerCase()} will appear here.
           </p>
-
         </div>
-
       </div>
-
     </>
-
   );
 }
-
-
 /* =================================
    GET INITIALS
 ================================= */
-
 function getInitials(name) {
-
   if (!name) {
     return "VO";
   }
-
-
   const words = name.trim().split(" ");
-
-
   if (words.length === 1) {
-
     return words[0]
       .substring(0, 2)
       .toUpperCase();
-
   }
-
-
   return (
     words[0].charAt(0) +
     words[words.length - 1].charAt(0)
   ).toUpperCase();
-
 }
-
-
 export default App;
